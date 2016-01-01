@@ -64,17 +64,46 @@ Define structures using `defxstruct`:
   VAL)  
 ```
 
+You can define structs in one of three modes by providing the `:MODE` option:
+* `:STRUCT` the default, defines a `DEFSTRUCT` form
+* `:LIST`, the structure is formed from a ordered list of elements
+* `:PLIST`, the structure is formed from a plist
+
+```
+(defxstruct mystruct ((:mode :list))
+  (x :uint32)
+  (y :string))
+(encode-mystruct blk '(123 "frank")
+(decode-mystruct blk)
+--> (123 "frank")
+
+(defxstruct mystruct ((:mode :plist))
+  (x :uint32)
+  (y :string))
+(encode-mystruct blk '(x 123 y "frank"))
+(decode-mystruct blk)
+--> (X 123 Y "frank")
+```
+
+
 ### 2.4 Unions
 Tagged unions are defined using `defxunion`:
 
 ```
 (defxunion myunion ()
-  ((0 :ok) :string)
+  (0 :string)
   (t :void))
-
 (encode-myunion blk (make-xunion :ok "hello"))
 (decode-myunion blk)
  --> (0 . "hello")
+
+;; can alternatively specify an enum type using the ENUM option
+(defxunion myunion ((:enum myenum))
+  (:ok :string)
+  (t :void))
+(encode-myunion blk (make-xunion :ok "hello"))
+(decode-myunion blk)
+ --> (:ok . "hello")
 ```
 
 ### 2.5 Arrays
