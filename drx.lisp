@@ -565,7 +565,6 @@ BODY ::= body of the function."
 NAME ::= type name
 OPTIONS ::= list of options
 VALS ::= list of forms (symbol integer)*."
-  (declare (ignore options))
   `(progn
      (defxdecoder ,name (blk)
        (let ((val (decode-int32 blk)))
@@ -574,9 +573,11 @@ VALS ::= list of forms (symbol integer)*."
                        (destructuring-bind (vname vval) v
                          `((= val ,vval) ',vname)))
                      vals)
-           (t (error "Unexpected enum value ~A expected one of ~A"
-                     val
-                     ',(mapcar #'cadr vals))))))
+           ,(if (cadr (assoc :exclusive options))
+		`(t (error "Unexpected enum value ~A expected one of ~A"
+			 val
+			 ',(mapcar #'cadr vals)))
+		`(t val)))))
      (defxencoder ,name (blk sym)
        (encode-uint32 blk
                       (cond
@@ -584,6 +585,6 @@ VALS ::= list of forms (symbol integer)*."
                                     (destructuring-bind (vname vval) v
                                       `((eq sym ',vname) ,vval)))
                                   vals)
-                        (t (error "Unexpected enum value ~A expexted one of ~A"
-                                  sym
-                                  ',(mapcar #'car vals))))))))
+			(t (error "Unexpected enum value ~A expected one of ~A"
+				  sym
+				  ',(mapcar #'car vals))))))))
