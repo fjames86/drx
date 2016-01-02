@@ -215,7 +215,7 @@
     (space-or-lose blk xlen)
     (let ((res (list (xdr-block-buffer blk)
                      (xdr-block-offset blk)
-                     len)))
+                     (+ (xdr-block-offset blk) len))))
       (incf (xdr-block-offset blk) xlen)
       res)))
 
