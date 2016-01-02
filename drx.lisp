@@ -225,15 +225,17 @@
     (let* ((len (- end start))
            (m (mod len 4))
            (xlen (if (zerop m) len (+ len (- 4 m)))))
-      (space-or-lose blk xlen)
       (encode-uint32 blk len)
+      (space-or-lose blk xlen)
       (let ((buf (xdr-block-buffer blk))
             (offset (xdr-block-offset blk)))
         (dotimes (i len)
           (setf (aref buf (+ offset i)) (aref buffer (+ start i))))
-        ;; should zero out the remaindesr
+        ;; should zero out the remainder
         (dotimes (i m)
-          (setf (aref buf (+ len i)) 0))))))
+          (setf (aref buf (+ offset len i)) 0))
+	;; increase the offset
+	(incf (xdr-block-offset blk) xlen)))))
           
 (defun decode-optional (blk decoder)
   (declare (type xdr-block blk))
