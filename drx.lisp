@@ -205,7 +205,7 @@
 
 (defun encode-opaque (blk arr)
   (declare (type xdr-block blk)
-	   (type (vector (unsigned-byte 8)) arr))
+	   (type (or null (vector (unsigned-byte 8))) arr))
   (let* ((len (length arr))
          (m (mod len 4))
          (xlen (if (zerop m) len (+ len (- 4 m)))))
