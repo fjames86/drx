@@ -1,7 +1,6 @@
 ;;;; Copyright (c) Frank James 2015 <frank.a.james@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-
 (defpackage #:drx
   (:use #:cl)
   (:export #:defxstruct
@@ -13,13 +12,15 @@
            #:defxencoder
            #:defxdecoder
            #:defxenum
-           
+           #:defxtype
+	   
+	   #:xdr-block 
            #:make-xdr-block
            #:reset-xdr-block
            #:xdr-block-buffer
            #:xdr-block-offset
            #:xdr-block-count
-           
+
            #:make-xunion
            #:xunion-tag
            #:xunion-val
@@ -65,17 +66,21 @@
                             (xdr-error-format-string c)
                             (xdr-error-args c))))))
 
-(defvar *default-buffer-size* 1024)
-
+(defconstant +default-buffer-size+ 1024)
 (defstruct xdr-block
-  (buffer (make-array *default-buffer-size* :element-type '(unsigned-byte 8) :initial-element 0))
-  (count *default-buffer-size*)
-  (offset 0))
+  (buffer (make-array +default-buffer-size+ :element-type '(unsigned-byte 8) :initial-element 0)
+	  :type (vector (unsigned-byte 8)))
+  (count +default-buffer-size+ :type integer)
+  (offset 0 :type integer))
+
 (defun reset-xdr-block (blk)
+  (declare (type xdr-block blk))
   (setf (xdr-block-count blk) (length (xdr-block-buffer blk))
         (xdr-block-offset blk) 0))
 
 (defun space-or-lose (blk n)
+  (declare (type xdr-block blk)
+	   (type integer n))
   (unless (<= (+ (xdr-block-offset blk) n)
               (xdr-block-count blk))
     (error 'xdr-error :format-string "Truncated XDR buffer")))
@@ -109,7 +114,8 @@
     (incf (xdr-block-offset blk) 8)))
 
 (defun encode-int32 (blk int32)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type integer int32))
   (space-or-lose blk 4)
   (setf (nibbles:sb32ref/be (xdr-block-buffer blk)
                             (xdr-block-offset blk))
@@ -117,7 +123,8 @@
   (incf (xdr-block-offset blk) 4))
 
 (defun encode-uint32 (blk int32)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type integer int32))
   (space-or-lose blk 4)
   (setf (nibbles:ub32ref/be (xdr-block-buffer blk)
                             (xdr-block-offset blk))
@@ -125,7 +132,8 @@
   (incf (xdr-block-offset blk) 4))
 
 (defun encode-int64 (blk int64)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type integer int64))
   (space-or-lose blk 8)
   (setf (nibbles:sb64ref/be (xdr-block-buffer blk)
                             (xdr-block-offset blk))
@@ -133,7 +141,8 @@
   (incf (xdr-block-offset blk) 8))
 
 (defun encode-uint64 (blk uint64)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type integer uint64))
   (space-or-lose blk 8)
   (setf (nibbles:ub64ref/be (xdr-block-buffer blk)
                             (xdr-block-offset blk))
@@ -162,7 +171,8 @@
           (incf (xdr-block-offset blk) (- 4 m)))))))
 
 (defun encode-string (blk string)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type string string))
   (let* ((octets (babel:string-to-octets string))
          (len (length octets)))
     (encode-uint32 blk len)
@@ -194,7 +204,8 @@
       a)))
 
 (defun encode-opaque (blk arr)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type (vector (unsigned-byte 8)) arr))
   (let* ((len (length arr))
          (m (mod len 4))
          (xlen (if (zerop m) len (+ len (- 4 m)))))
@@ -220,7 +231,8 @@
       res)))
 
 (defun encode-opaque* (blk arg)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type list arg))
   (destructuring-bind (buffer start end) arg 
     (let* ((len (- end start))
            (m (mod len 4))
@@ -238,19 +250,22 @@
 	(incf (xdr-block-offset blk) xlen)))))
           
 (defun decode-optional (blk decoder)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function decoder))
   (let ((p (decode-boolean blk)))
     (when p
       (funcall decoder blk))))
 
 (defun encode-optional (blk encoder val)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function encoder))
   (encode-boolean blk val)  
   (when val
     (funcall encoder blk val)))
 
 (defun decode-list (blk item-decoder)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-decoder))
   (do ((ret nil)
        (done nil))
       (done ret)
@@ -260,7 +275,9 @@
         (unless p (setf done t))))))
 
 (defun encode-list (blk item-encoder list)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-encoder)
+	   (type list list))
   (do ((items list (cdr items)))
       ((null items))
     (funcall item-encoder blk (car items))
@@ -269,7 +286,9 @@
         (encode-boolean blk nil))))
       
 (defun decode-array (blk item-decoder &optional count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-decoder)
+	   (type (or null integer) count))
   (unless count
     (setf count (decode-uint32 blk)))
   (let ((ret (make-array count)))
@@ -278,7 +297,10 @@
     ret))
 
 (defun encode-array (blk item-encoder array &optional count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-encoder)
+	   (type vector array)
+	   (type (or null integer) count))
   (when count
     (unless (= count (length array))
       (error 'xdr-error
@@ -290,14 +312,19 @@
     (funcall item-encoder blk (aref array i))))
 
 (defun decode-array-list (blk item-decoder &optional count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-decoder)
+	   (type (or null integer) count))
   (unless count
     (setf count (decode-uint32 blk)))
   (loop :for i :below count :collect
      (funcall item-decoder blk)))
 
 (defun encode-array-list (blk item-encoder array &optional count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type function item-encoder)
+	   (type list array)
+	   (type (or null integer) count))
   (when count
     (unless (= count (length array))
       (error 'xdr-error
@@ -308,9 +335,9 @@
   (dolist (x array)
     (funcall item-encoder blk x)))
 
-
 (defun decode-fixed (blk count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type integer count))
   (let ((a (make-array count :element-type '(unsigned-byte 8)))
         (buffer (xdr-block-buffer blk))
         (start (xdr-block-offset blk)))
@@ -321,7 +348,9 @@
     a))
 
 (defun encode-fixed (blk array count)
-  (declare (type xdr-block blk))
+  (declare (type xdr-block blk)
+	   (type (vector (unsigned-byte 8)) array)
+	   (type integer count))
   (let ((buffer (xdr-block-buffer blk))
         (start (xdr-block-offset blk)))
     (space-or-lose blk count)
@@ -372,11 +401,31 @@
     (otherwise
      (intern (format nil "ENCODE-~A" name) (symbol-package name)))))
 
+(defmacro defxencoder (name (blk val) &body body)
+  "Define a custom encoder for the type named by NAME.
+BLK, VAL ::= symbols
+BODY ::= body of the function."
+  `(defun ,(generate-encoder-name name) (,blk ,val)
+     ,@body))
+
+(defmacro defxdecoder (name (blk) &body body)
+  "Define a custom decoder for the type named by NAME."
+  `(defun ,(generate-decoder-name name) (,blk)
+     ,@body))
+
 (defmacro defxstruct (name options &rest slots)
   "Define a struct and associated XDR encoder and decoder.
 NAME ::= symbol naming the structure.
-OPTIONS ::= list of options.
-SLOTS :: list of forms (slot-name slot-type)* defining each slot."
+OPTIONS ::= {OPTION-SPEC}*
+OPTION-SPEC ::= (:MODE :STRUCT|:LIST|:PLIST)
+SLOTS :: list of forms (slot-name slot-type)* defining each slot.
+
+If the :MODE is :STRUCT (the default) a DEFSTRUCT form will be define the 
+type structure to be used as input/output values.
+If the :MODE is :LIST, the values are expected to be an ordered list containing 
+each of the structure slots.
+If the :MODE is :PLIST, the values are expected to be property lists containing
+values defined by the slot names."
   (let ((mode (or (cadr (assoc :mode options)) :struct)))
     `(progn
        ,@(when (eq mode :struct)
@@ -387,7 +436,7 @@ SLOTS :: list of forms (slot-name slot-type)* defining each slot."
                              `(,slot-name ,@slot-args)))
                          slots))))
      
-       (defun ,(generate-decoder-name name) (blk)
+       (defxdecoder ,name (blk)
          ,(ecase mode
             (:struct 
              `(let ((ret (,(symbolicate 'make- name))))
@@ -409,8 +458,8 @@ SLOTS :: list of forms (slot-name slot-type)* defining each slot."
                                 (destructuring-bind (slot-name slot-type) slot
                                   (list `',slot-name `(,(generate-decoder-name slot-type) blk))))
                               slots)))))
-       
-       (defun ,(generate-encoder-name name) (blk val)
+
+       (defxencoder ,name (blk val)
          ,(ecase mode
             (:struct 
              `(progn
@@ -449,14 +498,19 @@ SLOTS :: list of forms (slot-name slot-type)* defining each slot."
   (declare (type cons union))
   (cdr union))
 
-
-
 (defmacro defxunion (name options &rest arms)
-  "Define a union-type encoder and decoder.
+  "Define a discriminated union type.
 NAME ::= symbol naming the union type.
 OPTIONS ::= list of options.
 ARMS ::= list of forms (arm-val arm-type) where arm-val is an integer and 
-arm-type is a symbol naming the type of the union on that arm."
+arm-type is a symbol naming the type of the union on that arm.
+
+The last arm-val may be the symbol T, which indicates it should match any
+other value. If this form is not supplied then an error will be signalled
+in this case.
+
+Values used as input and output are formed and accessed using the MAKE-XUNION, 
+XUNION-TAG and XUNION-VAL functions."
   (let ((encoder (or (let ((e (cadr (assoc :enum options))))
                        (when e (generate-encoder-name e)))
                      'encode-int32))
@@ -464,7 +518,7 @@ arm-type is a symbol naming the type of the union on that arm."
                        (when e (generate-decoder-name e)))
                      'decode-int32)))
     `(progn
-       (defun ,(generate-decoder-name name) (blk)
+       (defxdecoder ,name (blk)
          (let ((tag (,decoder blk)))
            (cond
              ,@(mapcar (lambda (arm)
@@ -481,8 +535,11 @@ arm-type is a symbol naming the type of the union on that arm."
                                   (let ((arm-val (car arm)))
                                     (eq arm-val 't)))
                                 arms)
-                 `((t (error "Unexpected union tag ~A" tag)))))))
-       (defun ,(generate-encoder-name name) (blk union)
+		       `((t (error 'xdr-error
+				   :format-string "Unexpected union tag ~A"
+				   :args (list tag))))))))
+
+       (defxencoder ,name (blk union)
          (let ((tag (xunion-tag union))
                (val (xunion-val union)))
            (cond 
@@ -500,7 +557,9 @@ arm-type is a symbol naming the type of the union on that arm."
                                   (let ((arm-val (car arm)))
                                     (eq arm-val 't)))
                                 arms)
-                `((t (error "Unexpected union tag ~A" tag))))))))))
+		       `((t (error 'xdr-error
+				   :format-string "Unexpected union tag ~A"
+				   :args (list tag)))))))))))
 
 (defmacro defxoptional (name options type)
   "Define an optional-type encoder and decoder.
@@ -508,59 +567,58 @@ NAME ::= symbol naming the type.
 TYPE ::= symbol naming the optional type."
   (declare (ignore options))
   `(progn
-     (defun ,(generate-decoder-name name) (blk)
+     (defxdecoder ,name (blk)
        (decode-optional blk (function ,(generate-decoder-name type))))
-     (defun ,(generate-encoder-name name) (blk val)
+
+     (defxencoder ,name (blk val)
        (encode-optional blk (function ,(generate-encoder-name type)) val))))
 
 (defmacro defxarray (name options type &optional count)
-  "Define a fixed or variable length array encoder and decoder.
+  "Define a fixed or variable length array type.
 NAME ::= symbol naming the type.
-OPTIONS ::= list of option forms.
+OPTIONS ::= {OPTION-SPEC}*
+OPTION-SPEC ::= (:MODE :ARRAY|:LIST)
 TYPE ::= symbol naming the array type.
-COUNT ::= if supplied, defines a fixed-length array of length count. If not supplied, defines 
-a variable array."
+COUNT ::= if supplied, defines a fixed-length array of length count. 
+If not supplied, defines a variable array.
+
+If the MODE is :ARRAY (the default), then the value is expected to be an array or vector. If the MODE is :LIST then the value is a list."
   (let ((mode (or (cadr (assoc :mode options)) :array)))
     `(progn
-       (defun ,(generate-decoder-name name) (blk)
+       (defxdecoder ,name (blk)
          ,(ecase mode
             (:array `(decode-array blk (function ,(generate-decoder-name type)) ,count))
             (:list `(decode-array-list blk (function ,(generate-decoder-name type)) ,count))))
-       (defun ,(generate-encoder-name name) (blk array)
+
+       (defxencoder ,name (blk array)
          ,(ecase mode
             (:array `(encode-array blk (function ,(generate-encoder-name type)) array ,count))
             (:list `(encode-array-list blk (function ,(generate-encoder-name type)) array ,count)))))))
 
 (defmacro defxfixed (name options count)
-  "Defines a fixed opaque array of length count."
+  "Defines a fixed opaque array of length count.
+NAME ::= symbol naming the new type.
+COUNT ::= integer specifying the length of the fixed array."
   (declare (ignore options))
   `(progn
-     (defun ,(generate-decoder-name name) (blk)
+     (defxdecoder ,name (blk)
        (decode-fixed blk ,count))
-     (defun ,(generate-encoder-name name) (blk array)
+
+     (defxencoder ,name (blk array)
        (encode-fixed blk array ,count))))
 
 (defmacro defxlist (name options type)
-  "Defines encoder and decoder for the commonly found pattern of <item><boolean more?>."
+  "Defines encoder and decoder for the commonly found pattern of <item><boolean more?>.
+NAME ::= name of the type to define.
+OPTIONS ::= list of options.
+TYPE ::= symbol naming the existing type."
   (declare (ignore options))
   `(progn
-     (defun ,(generate-decoder-name name) (blk)
+     (defxdecoder ,name (blk)
        (decode-list blk (function ,(generate-decoder-name type))))
-     (defun ,(generate-encoder-name name) (blk list)
+
+     (defxencoder ,name (blk list)
        (encode-list blk (function ,(generate-encoder-name type)) list))))
-
-
-(defmacro defxencoder (name (blk val) &body body)
-  "Define a custom encoder for the type named by NAME.
-BLK, VAL ::= symbols
-BODY ::= body of the function."
-  `(defun ,(generate-encoder-name name) (,blk ,val)
-     ,@body))
-
-(defmacro defxdecoder (name (blk) &body body)
-  "Define a custom decoder for the type named by NAME."
-  `(defun ,(generate-decoder-name name) (,blk)
-     ,@body))
 
 (defmacro defxenum (name options &rest vals)
   "Define an enum type, which is a mapping from integers to symbols.
@@ -580,6 +638,7 @@ VALS ::= list of forms (symbol integer)*."
 			 val
 			 ',(mapcar #'cadr vals)))
 		`(t val)))))
+     
      (defxencoder ,name (blk sym)
        (encode-uint32 blk
                       (cond
@@ -590,3 +649,13 @@ VALS ::= list of forms (symbol integer)*."
 			(t (error "Unexpected enum value ~A expected one of ~A"
 				  sym
 				  ',(mapcar #'car vals))))))))
+
+(defmacro defxtype (name options type)
+  "Define a typename alias.
+NAME ::= symbol naming the new type.
+OPTIONS ::= list of options.
+TYPE ::= symbol naming the existing typename to alias."
+  (declare (ignore options))
+  `(progn
+     (defxencoder ,name (blk val) (,(generate-encoder-name type) blk val))
+     (defxdecoder ,name (blk) (,(generate-decoder-name type) blk))))
