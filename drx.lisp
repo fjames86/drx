@@ -73,6 +73,11 @@
   (count +default-buffer-size+ :type integer)
   (offset 0 :type integer))
 
+(defun xdr-block (&optional count)
+  (make-xdr-block :buffer (make-array (or count +default-buffer-size+)
+				      :element-type '(unsigned-byte 8) :initial-element 0)
+		  :count (or count +default-buffer-size+)))
+
 (defun reset-xdr-block (blk)
   (declare (type xdr-block blk))
   (setf (xdr-block-count blk) (length (xdr-block-buffer blk))
@@ -620,35 +625,61 @@ TYPE ::= symbol naming the existing type."
      (defxencoder ,name (blk list)
        (encode-list blk (function ,(generate-encoder-name type)) list))))
 
+
 (defmacro defxenum (name options &rest vals)
   "Define an enum type, which is a mapping from integers to symbols.
 NAME ::= type name
-OPTIONS ::= list of options
-VALS ::= list of forms (symbol integer)*."
-  `(progn
-     (defxdecoder ,name (blk)
-       (let ((val (decode-int32 blk)))
-         (cond
-           ,@(mapcar (lambda (v)
-                       (destructuring-bind (vname vval) v
-                         `((= val ,vval) ',vname)))
-                     vals)
-           ,(if (cadr (assoc :exclusive options))
-		`(t (error "Unexpected enum value ~A expected one of ~A"
-			 val
-			 ',(mapcar #'cadr vals)))
-		`(t val)))))
-     
-     (defxencoder ,name (blk sym)
-       (encode-uint32 blk
-                      (cond
-                        ,@(mapcar (lambda (v)
-                                    (destructuring-bind (vname vval) v
-                                      `((eq sym ',vname) ,vval)))
-                                  vals)
-			(t (error "Unexpected enum value ~A expected one of ~A"
-				  sym
-				  ',(mapcar #'car vals))))))))
+OPTIONS ::= {OPTION-SPEC}* a list of options
+OPTION-SPEC ::= (:exclusive exclusive-p)
+VALS ::= list of forms (symbol integer)*.
+
+If exclusive-p is true (the default) then an attempt to encode an enum
+value which does not have a defined mapping will result in an error. An attempt
+to decode an enum which does not have a mappign will also error.
+If exclsuive-p is false, an attempt to encode an arbitrary integer will
+be permitted in addition to the defined symbol mappings. An attempt to decode
+an enum without a defined mapping will return that integer."
+  (let ((exclp (if (assoc :exclusive options)
+		   (cadr (assoc :exclusive options))
+		   t)))
+    `(progn
+       (defxdecoder ,name (blk)
+	 (let ((val (decode-int32 blk)))
+	   (cond
+	     ,@(mapcar (lambda (v)
+			 (destructuring-bind (vname vval) v
+			   `((= val ,vval) ',vname)))
+		       vals)
+	     ,(if exclp
+		  ;; exclusive mode, signal an error
+		  `(t (error 'xdr-error
+			     :format-string "Unexpected enum value ~A expected one of ~A"
+			     :args (list val ',(mapcar #'cadr vals))))
+		  ;; non-exclusive mode, return the integer
+		  `(t val)))))
+
+       (defxencoder ,name (blk sym)
+	 (let ((val
+		(cond
+		  ,@(mapcar (lambda (v)
+			      (destructuring-bind (vname vval) v
+				`((eq sym ',vname) ,vval)))
+			    vals)
+		  (t
+		   ,(if exclp
+			;; exclusive mode, must be a defined symbol
+			`(error 'xdr-error
+				:format-string "Unexpected enum value ~S expected one of ~A"
+				:args (list sym ',(mapcar #'car vals)))
+			;; non-exclusive mode, must be a defined symbol
+			;; or an integer
+			`(if (integerp sym)
+			     sym
+			     (error 'xdr-error
+				    :format-string "Unexpected enum value ~S, expected one of ~A or an integer"
+				    :args (list sym ',(mapcar #'car vals)))))))))
+	   (encode-uint32 blk val))))))
+
 
 (defmacro defxtype (name options type)
   "Define a typename alias.
