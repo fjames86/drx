@@ -572,9 +572,10 @@ NAME ::= symbol naming the type.
 TYPE ::= symbol naming the optional type."
   (declare (ignore options))
   `(progn
+     (declaim (inline ,(generate-decoder-name name)))
      (defxdecoder ,name (blk)
        (decode-optional blk (function ,(generate-decoder-name type))))
-
+     (declaim (inline ,(generate-encoder-name name)))
      (defxencoder ,name (blk val)
        (encode-optional blk (function ,(generate-encoder-name type)) val))))
 
@@ -606,9 +607,10 @@ NAME ::= symbol naming the new type.
 COUNT ::= integer specifying the length of the fixed array."
   (declare (ignore options))
   `(progn
+     (declaim (inline ,(generate-decoder-name name)))
      (defxdecoder ,name (blk)
        (decode-fixed blk ,count))
-
+     (declaim (inline ,(generate-encoder-name name)))
      (defxencoder ,name (blk array)
        (encode-fixed blk array ,count))))
 
@@ -619,9 +621,10 @@ OPTIONS ::= list of options.
 TYPE ::= symbol naming the existing type."
   (declare (ignore options))
   `(progn
+     (declaim (inline ,(generate-decoder-name name)))
      (defxdecoder ,name (blk)
        (decode-list blk (function ,(generate-decoder-name type))))
-
+     (declaim (inline ,(generate-encoder-name name)))
      (defxencoder ,name (blk list)
        (encode-list blk (function ,(generate-encoder-name type)) list))))
 
@@ -688,5 +691,8 @@ OPTIONS ::= list of options.
 TYPE ::= symbol naming the existing typename to alias."
   (declare (ignore options))
   `(progn
+     (declaim (inline ,(generate-encoder-name name)))
      (defxencoder ,name (blk val) (,(generate-encoder-name type) blk val))
+     (declaim (inline ,(generate-decoder-name name)))
      (defxdecoder ,name (blk) (,(generate-decoder-name type) blk))))
+
