@@ -528,13 +528,19 @@ XUNION-TAG and XUNION-VAL functions."
            (cond
              ,@(mapcar (lambda (arm)
                          (destructuring-bind (arm-val type) arm
-                           (if (eq arm-val 't)
-                               `(t
-                                 (make-xunion tag
-                                              (,(generate-decoder-name type) blk)))
-                               `((eql tag ,arm-val)
-                                 (make-xunion tag 
-                                              (,(generate-decoder-name type) blk))))))
+                           (cond
+			    ((eq arm-val 't)
+			     `(t
+			       (make-xunion tag
+					    (,(generate-decoder-name type) blk))))
+			    ((cadr (assoc :enum options))
+			     `((eql tag ',arm-val)
+			       (make-xunion tag 
+					    (,(generate-decoder-name type) blk))))
+			    (t
+			     `((= tag ,arm-val)
+			       (make-xunion tag 
+					    (,(generate-decoder-name type) blk)))))))
                        arms)
              ,@(unless (find-if (lambda (arm)
                                   (let ((arm-val (car arm)))
@@ -550,13 +556,19 @@ XUNION-TAG and XUNION-VAL functions."
            (cond 
              ,@(mapcar (lambda (arm)
                          (destructuring-bind (arm-val type) arm
-                           (if (eq arm-val 't)
-                               `(t
-                                 (,encoder blk tag)
-                                 (,(generate-encoder-name type) blk val))
-                               `((eql tag ,arm-val)
-                                 (,encoder blk ,arm-val)
-                                 (,(generate-encoder-name type) blk val)))))
+			   (cond
+			     ((eq arm-val 't)
+			      `(t
+				(,encoder blk tag)
+				(,(generate-encoder-name type) blk val)))
+			     ((cadr (assoc :enum options))
+			      `((eql tag ',arm-val)
+				(,encoder blk ',arm-val)
+				(,(generate-encoder-name type) blk val)))
+			     (t
+			      `((= tag ,arm-val)
+				(,encoder blk ,arm-val)
+				(,(generate-encoder-name type) blk val))))))
                        arms)
              ,@(unless (find-if (lambda (arm)
                                   (let ((arm-val (car arm)))
