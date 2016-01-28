@@ -421,25 +421,46 @@ BODY ::= body of the function."
 (defmacro defxstruct (name options &rest slots)
   "Define a struct and associated XDR encoder and decoder.
 NAME ::= symbol naming the structure.
-OPTIONS ::= {OPTION-SPEC}*
-OPTION-SPEC ::= (:MODE :STRUCT|:LIST|:PLIST)
-SLOTS :: list of forms (slot-name slot-type)* defining each slot.
+Available OPTIONS:    
+    (:MODE {:STRUCT| :LIST | :PLIST})
+    Specify the underlying Lisp representation of the structure. STRUCT expands to a defstruct form and instances are of this type. LIST specifies to store the structure in an ordered list, with each slot an item in the list. PLIST specifies to store the structure in a property list, with alternativing items a symbol naming the slot and the slot value itself. 
 
-If the :MODE is :STRUCT (the default) a DEFSTRUCT form will be define the 
-type structure to be used as input/output values.
-If the :MODE is :LIST, the values are expected to be an ordered list containing 
-each of the structure slots.
-If the :MODE is :PLIST, the values are expected to be property lists containing
-values defined by the slot names."
-  (let ((mode (or (cadr (assoc :mode options)) :struct)))
+    (:CONSTRUCTOR Name)
+    When using modes LIST or PLIST, change the name of the constructor.
+
+SLOTS ::= list of forms (slot-name slot-type)* defining each slot.
+
+"
+  (let ((mode (or (cadr (assoc :mode options)) :struct)))	
     `(progn
        ,@(when (eq mode :struct)
-           `((defstruct ,name
+	       `((defstruct ,(if (cadr (assoc :constructor options))
+				 `(,name
+				   (:constructor
+				    ,(cadr (assoc :constructor options))))
+				 name)
                ,@(mapcar (lambda (slot)
                            (destructuring-bind (slot-name slot-type &rest slot-args) slot
                              (declare (ignore slot-type))
                              `(,slot-name ,@slot-args)))
                          slots))))
+       ,@(when (eq mode :list)
+	       `((defun ,(or (cadr (assoc :constructor options))
+			     (symbolicate 'make- name))
+		     (&key ,@(loop :for slot in slots
+				:nconc (if (third slot)
+					   (list `(,(car slot) ,(third slot)))
+					   (list (car slot)))))
+		   (list ,@(mapcar #'car slots)))))
+       ,@(when (eq mode :plist)
+       	       `((defun ,(or (cadr (assoc :constructor options))
+			     (symbolicate 'make- name))
+		     (&key ,@(loop :for slot in slots
+				:nconc (if (third slot)
+					   (list `(,(car slot) ,(third slot)))
+					   (list (car slot)))))
+       		   (list ,@(loop :for slot :in slots
+			      :nconc (list `',(car slot) (car slot)))))))
      
        (defxdecoder ,name (blk)
          ,(ecase mode
@@ -454,13 +475,14 @@ values defined by the slot names."
                 ret))
             (:list
              `(list ,@(mapcar (lambda (slot)
-                                (destructuring-bind (slot-name slot-type) slot
-                                  (declare (ignore slot-name))
+                                (destructuring-bind (slot-name slot-type &rest slot-options) slot
+                                  (declare (ignore slot-name slot-options))
                                   `(,(generate-decoder-name slot-type) blk)))
                               slots)))
             (:plist
              `(list ,@(mapcan (lambda (slot)
-                                (destructuring-bind (slot-name slot-type) slot
+                                (destructuring-bind (slot-name slot-type &rest slot-options) slot
+				  (declare (ignore slot-options))
                                   (list `',slot-name `(,(generate-decoder-name slot-type) blk))))
                               slots)))))
 
@@ -478,8 +500,8 @@ values defined by the slot names."
              (let ((gval (gensym)))
                `(let ((,gval val))
                   ,@(mapcar (lambda (slot)
-                              (destructuring-bind (slot-name slot-type) slot
-                                (declare (ignore slot-name))
+                              (destructuring-bind (slot-name slot-type &rest slot-options) slot
+                                (declare (ignore slot-name slot-options))
                                 `(progn
                                    (,(generate-encoder-name slot-type) blk (car ,gval))
                                    (setf ,gval (cdr ,gval)))))
@@ -487,7 +509,8 @@ values defined by the slot names."
             (:plist
              `(progn
                 ,@(mapcar (lambda (slot)
-                            (destructuring-bind (slot-name slot-type) slot
+                            (destructuring-bind (slot-name slot-type &rest slot-options) slot
+			      (declare (ignore slot-options))
                               `(,(generate-encoder-name slot-type) blk (getf val ',slot-name))))
                           slots))))               
          val))))
