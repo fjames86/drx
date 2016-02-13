@@ -330,12 +330,12 @@
 	   (type function item-encoder)
 	   (type list array)
 	   (type (or null integer) count))
-  (when count
-    (unless (= count (length array))
-      (error 'xdr-error
-             :format-string "Fixed array count ~A doesn't match array count ~A"
-             :args (list count (length array))))
-    (encode-uint32 blk count))
+  (if count
+      (unless (= count (length array))
+	(error 'xdr-error
+	       :format-string "Fixed array count ~A doesn't match array count ~A"
+	       :args (list count (length array))))
+      (encode-uint32 blk (length array)))
 
   (dolist (x array)
     (funcall item-encoder blk x)))
